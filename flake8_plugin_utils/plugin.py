@@ -16,6 +16,15 @@ from typing import (
 
 from flake8.options.manager import OptionManager
 
+# Polyfill stdin loading/reading lines
+# https://gitlab.com/pycqa/flake8-polyfill/blob/1.0.1/src/flake8_polyfill/stdin.py#L52-57
+try:
+    from flake8.engine import pep8
+    stdin_get_value = pep8.stdin_get_value
+except ImportError:
+    from flake8 import utils
+    stdin_get_value = utils.stdin_get_value
+
 FLAKE8_ERROR = Tuple[int, int, str, 'Plugin']
 NOQA_REGEXP = re.compile(r'#.*noqa\s*($|[^:\s])', re.I)
 NOQA_ERROR_CODE_REGEXP = re.compile(r'#.*noqa\s*:\s*(\w+)', re.I)
@@ -84,12 +93,15 @@ class Plugin(Generic[TConfig]):
                     yield self._error(error)
 
     def _load_file(self) -> None:
-        with open(self._filename, 'rb') as f:
-            content = f.read()
-        self._tree = ast.parse(content)
-        # lines is only used for noqa verification,
-        # and we can ignore encoding errors
-        self._lines = content.decode('utf-8', errors='replace').splitlines()
+        if self._filename in ('stdin', '-', None):
+            self._lines = stdin_get_value().splitlines(True)
+        else:
+            with open(self._filename, 'rb') as f:
+                content = f.read()
+            self._tree = ast.parse(content)
+            # lines is only used for noqa verification,
+            # and we can ignore encoding errors
+            self._lines = content.decode('utf-8', errors='replace').splitlines()
 
     def _error(self, error: Error) -> FLAKE8_ERROR:
         return (
